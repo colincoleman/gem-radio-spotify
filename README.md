@@ -2,7 +2,9 @@
 
 Scrapes 7 days of [Gem Radio New Wave](https://tunein.com/radio/Gem-Radio-New-Wave-s183330/) track history from [OnlineRadioBox](https://onlineradiobox.com/ie/gemnewwave/playlist/) and creates a dated playlist in your Spotify or Tidal account.
 
-Gem Radio New Wave is a continuous-rotation internet radio station playing 70s/80s New Wave and Alternative. Because it runs a rotating catalog, scraping 7 days captures most of the unique tracks they play. Running the script monthly and keeping old playlists gives you a nice snapshot archive — *Gem Radio New Wave Jun 26*, *Gem Radio New Wave Jul 26*, and so on.
+Gem Radio New Wave has a great selection of 70s/80s New Wave and Alternative — but listening to it via TuneIn means putting up with heavily compressed 128kbps streaming audio that sounds terrible on anything decent. This script lifts the playlist out of TuneIn and recreates it in Spotify or Tidal where you can listen at a proper bitrate.
+
+Because the station runs a rotating catalog, scraping 7 days captures most of the unique tracks they play. Running the script monthly and keeping old playlists gives you a nice snapshot archive — *Gem Radio New Wave Jun 26*, *Gem Radio New Wave Jul 26*, and so on.
 
 ## Requirements
 
