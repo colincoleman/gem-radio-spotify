@@ -222,6 +222,10 @@ def scrape_all_days(num_days=7):
 
 # ── Spotify API ───────────────────────────────────────────────────────────────
 
+class SpotifyRateLimitError(Exception):
+    def __init__(self, retry_after):
+        self.retry_after = retry_after
+
 class Spotify:
     BASE = "https://api.spotify.com/v1"
 
@@ -234,12 +238,14 @@ class Spotify:
             r = self.session.get(f"{self.BASE}{path}", params=params)
             if r.status_code == 429:
                 wait = int(r.headers.get("Retry-After", 5)) + 1
+                if wait > 60:
+                    raise SpotifyRateLimitError(wait)
                 print(f"  Rate limited — waiting {wait}s…")
                 time.sleep(wait)
                 continue
             r.raise_for_status()
             return r.json()
-        raise RuntimeError("Spotify API rate limit: too many retries")
+        raise SpotifyRateLimitError(3600)
 
     def _post(self, path, **kwargs):
         r = self.session.post(f"{self.BASE}{path}", **kwargs)
@@ -302,7 +308,13 @@ def main():
         if key in search_cache:
             uri = search_cache[key]
         else:
-            uri = sp.search_track(artist, title)
+            try:
+                uri = sp.search_track(artist, title)
+            except SpotifyRateLimitError as e:
+                hours = e.retry_after / 3600
+                print(f"\nSpotify daily quota hit. Progress saved ({api_calls} tracks searched, {len(uris)} found).")
+                print(f"Run the script again in {hours:.1f} hours to continue from where it left off.")
+                sys.exit(0)
             search_cache[key] = uri
             api_calls += 1
             SEARCH_CACHE_FILE.write_text(json.dumps(search_cache))
