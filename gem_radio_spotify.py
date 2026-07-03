@@ -78,13 +78,19 @@ def _pkce_pair():
     challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
     return verifier, challenge
 
+REQUIRED_SCOPES = set(SCOPES.split())
+
 def _load_cached_token():
     if not CACHE_FILE.exists():
         return None
     data = json.loads(CACHE_FILE.read_text())
+    granted = set(data.get("scope", "").split())
+    if not REQUIRED_SCOPES.issubset(granted):
+        print("Cached token is missing required scopes — re-authenticating…")
+        CACHE_FILE.unlink()
+        return None
     if data.get("expires_at", 0) > time.time() + 60:
         return data["access_token"]
-    # Try refresh
     if "refresh_token" in data:
         return _refresh_token(data["refresh_token"], data["client_id"])
     return None
