@@ -41,7 +41,7 @@ python gem_radio_tidal.py --days 3
 
 ### Spotify (requires a free Developer App)
 
-Spotify requires a Client ID to use their API. You only need to do this once:
+Spotify requires a Client ID to use their API. **Each person who wants to use the script needs their own free Developer App** — Spotify apps in development mode only allow the app owner to create playlists (others get a 403 error). Setup takes about 2 minutes:
 
 1. Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) and create a free app (name it anything)
 2. Under **Redirect URIs**, add exactly: `http://127.0.0.1:8888/callback`

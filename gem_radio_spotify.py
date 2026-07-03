@@ -249,6 +249,17 @@ class Spotify:
 
     def _post(self, path, **kwargs):
         r = self.session.post(f"{self.BASE}{path}", **kwargs)
+        if r.status_code == 403 and "playlists" in path:
+            print("\n403 Forbidden: Spotify refused to create the playlist.")
+            print("This usually means your Spotify account hasn't been added to the")
+            print("Developer App that owns this Client ID.")
+            print()
+            print("Fix options:")
+            print("  1. Ask the app owner to add your Spotify email at:")
+            print("     developer.spotify.com → your app → Users and access")
+            print("  2. Create your own free app at developer.spotify.com/dashboard")
+            print("     and delete ~/.gem_radio_spotify.json to re-enter your Client ID.")
+            sys.exit(1)
         r.raise_for_status()
         return r.json()
 
