@@ -293,6 +293,7 @@ def main():
     parser = argparse.ArgumentParser(description="Sync Gem Radio New Wave → Spotify playlist")
     parser.add_argument("--name", help="Playlist name (default: 'Gem Radio New Wave Jun 26')")
     parser.add_argument("--days", type=int, default=7, help="Days of history to scrape (default: 7)")
+    parser.add_argument("--limit", type=int, default=None, help="Max tracks to add to the playlist")
     args = parser.parse_args()
 
     playlist_name = args.name or default_playlist_name()
@@ -345,6 +346,9 @@ def main():
             unique_uris.append(uri)
     duplicates_removed = len(uris) - len(unique_uris)
     uris = unique_uris
+
+    if args.limit:
+        uris = uris[:args.limit]
 
     print(f"\nMatched {len(uris)}/{len(tracks)} tracks on Spotify ({duplicates_removed} duplicate URIs removed).")
     if not_found:
