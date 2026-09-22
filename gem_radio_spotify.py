@@ -257,20 +257,12 @@ class Spotify:
         r = self.session.post(f"{self.BASE}{path}", **kwargs)
         if r.status_code == 403 and "playlists" in path:
             print("\n403 Forbidden: Spotify refused to create the playlist.")
-            print("This usually means your Spotify account hasn't been added to the")
-            print("Developer App that owns this Client ID.")
-            print()
-            print("Fix options:")
-            print("  1. Ask the app owner to add your Spotify email at:")
-            print("     developer.spotify.com → your app → Users and access")
-            print("  2. Create your own free app at developer.spotify.com/dashboard")
-            print("     and delete ~/.gem_radio_spotify.json to re-enter your Client ID.")
+            print("Delete ~/.gem_radio_spotify_token.json and re-run to get a fresh token.")
+            print("If it still fails, make sure your Developer App has 'Web API' enabled")
+            print("and the redirect URI set to http://127.0.0.1:8888/callback")
             sys.exit(1)
         r.raise_for_status()
         return r.json()
-
-    def current_user_id(self):
-        return self._get("/me")["id"]
 
     def search_track(self, artist, title):
         query = f"artist:{artist} track:{title}"
@@ -278,9 +270,9 @@ class Spotify:
         items = data.get("tracks", {}).get("items", [])
         return items[0]["uri"] if items else None
 
-    def create_playlist(self, user_id, name, description=""):
+    def create_playlist(self, name, description=""):
         return self._post(
-            f"/users/{user_id}/playlists",
+            "/me/playlists",
             json={"name": name, "public": True, "description": description},
         )["id"]
 
@@ -363,9 +355,8 @@ def main():
         print("No tracks to add — exiting.")
         sys.exit(1)
 
-    user_id = sp.current_user_id()
     description = f"Gem Radio New Wave — scraped {datetime.now().strftime('%Y-%m-%d')}"
-    playlist_id = sp.create_playlist(user_id, playlist_name, description)
+    playlist_id = sp.create_playlist(playlist_name, description)
     sp.add_tracks(playlist_id, uris)
 
     print(f"\nDone! Playlist '{playlist_name}' created with {len(uris)} tracks.")
