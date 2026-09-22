@@ -255,14 +255,9 @@ class Spotify:
 
     def _post(self, path, **kwargs):
         r = self.session.post(f"{self.BASE}{path}", **kwargs)
-        if r.status_code == 403 and "playlists" in path:
-            print("\n403 Forbidden: Spotify refused to create the playlist.")
-            try:
-                print(f"Spotify says: {r.json()}")
-            except Exception:
-                print(f"Response body: {r.text}")
+        if not r.ok:
+            print(f"\nSpotify rejected POST {path}: {r.status_code} {r.text}")
             sys.exit(1)
-        r.raise_for_status()
         return r.json()
 
     def search_track(self, artist, title):
@@ -279,7 +274,7 @@ class Spotify:
 
     def add_tracks(self, playlist_id, uris):
         for i in range(0, len(uris), 100):
-            self._post(f"/playlists/{playlist_id}/tracks", json={"uris": uris[i:i+100]})
+            self._post(f"/playlists/{playlist_id}/items", json={"uris": uris[i:i+100]})
             time.sleep(0.2)
 
 # ── Main ─────────────────────────────────────────────────────────────────────
