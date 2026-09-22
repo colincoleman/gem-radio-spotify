@@ -124,6 +124,22 @@ def search_track(session, artist, title):
     # Fall back to the top result
     return tracks[0].id
 
+def find_playlist(session, name):
+    for p in session.user.playlists():
+        if p.name == name:
+            return p
+    return None
+
+def playlist_track_ids(playlist):
+    ids = set()
+    offset = 0
+    while True:
+        page = playlist.tracks(limit=100, offset=offset)
+        ids.update(t.id for t in page)
+        if len(page) < 100:
+            return ids
+        offset += 100
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def default_playlist_name():
@@ -134,13 +150,21 @@ def main():
     parser = argparse.ArgumentParser(description="Sync Gem Radio New Wave → Tidal playlist")
     parser.add_argument("--name", help="Playlist name (default: 'Gem Radio New Wave Jun 26')")
     parser.add_argument("--days", type=int, default=7, help="Days of history to scrape (default: 7)")
+    parser.add_argument("--limit", type=int, default=None, help="Max new tracks to add in this run")
     args = parser.parse_args()
 
     playlist_name = args.name or default_playlist_name()
-    print(f"Creating playlist: '{playlist_name}'")
 
     session = get_session()
     print(f"Logged in as: {session.user.email}\n")
+
+    playlist = find_playlist(session, playlist_name)
+    if playlist:
+        existing = playlist_track_ids(playlist)
+        print(f"Updating existing playlist '{playlist_name}' ({len(existing)} tracks already in it)")
+    else:
+        existing = set()
+        print(f"Will create new playlist: '{playlist_name}'")
 
     tracks = scrape_all_days(args.days)
     if not tracks:
@@ -151,9 +175,13 @@ def main():
 
     print("\nSearching Tidal for tracks…")
     track_ids = []
+    id_keys = {}
     not_found = []
+    already_present = 0
     api_calls = 0
     for i, (artist, title) in enumerate(tracks, 1):
+        if args.limit and len(track_ids) >= args.limit:
+            break
         key = f"{artist.lower()} - {title.lower()}"
         if key in search_cache:
             tid = search_cache[key]
@@ -164,44 +192,53 @@ def main():
             SEARCH_CACHE_FILE.write_text(json.dumps(search_cache))
             time.sleep(0.3)
 
-        if tid:
-            track_ids.append(tid)
-        else:
+        if not tid:
             not_found.append(f"{artist} - {title}")
-
-    # Deduplicate IDs (preserving order) — same song can appear under slightly
-    # different artist/title strings and resolve to the same Tidal track ID.
-    seen_ids = set()
-    unique_ids = []
-    for tid in track_ids:
-        if tid not in seen_ids:
-            seen_ids.add(tid)
-            unique_ids.append(tid)
-    duplicates_removed = len(track_ids) - len(unique_ids)
-    track_ids = unique_ids
+        elif tid in existing:
+            already_present += 1
+        else:
+            id_keys.setdefault(tid, []).append(key)
+            if len(id_keys[tid]) == 1:
+                track_ids.append(tid)
 
         if i % 10 == 0:
             cached = i - api_calls
-            print(f"  {i}/{len(tracks)}: {len(track_ids)} found, {api_calls} API calls, {cached} from cache…")
+            print(f"  {i}/{len(tracks)}: {len(track_ids)} new, {api_calls} API calls, {cached} from cache…")
 
-    print(f"\nMatched {len(track_ids)}/{len(tracks)} tracks on Tidal ({duplicates_removed} duplicate IDs removed).")
+    print(f"\n{len(track_ids)} new tracks to add, {already_present} already in the playlist.")
     if not_found:
-        print(f"Not found ({len(not_found)}):")
+        print(f"Not found on Tidal ({len(not_found)}):")
         for t in not_found:
             print(f"  {t}")
 
     if not track_ids:
-        print("No tracks to add — exiting.")
-        sys.exit(1)
+        print("Nothing new to add.")
+        return
 
-    playlist = session.user.create_playlist(
-        playlist_name,
-        f"Gem Radio New Wave — scraped {datetime.now().strftime('%Y-%m-%d')}",
-    )
-    # Tidal add_tracks accepts a list of track IDs
-    playlist.add(track_ids)
+    if not playlist:
+        playlist = session.user.create_playlist(
+            playlist_name,
+            f"Gem Radio New Wave — created {datetime.now().strftime('%Y-%m-%d')}",
+        )
 
-    print(f"\nDone! Playlist '{playlist_name}' created with {len(track_ids)} tracks.")
+    # API/auth errors raise here and exit before the cache is touched.
+    for i in range(0, len(track_ids), 100):
+        playlist.add([str(t) for t in track_ids[i:i+100]])
+
+    # Tidal silently skips IDs it doesn't recognise, so read the playlist back
+    # to find which tracks were actually rejected.
+    now_present = playlist_track_ids(playlist)
+    rejected = [t for t in track_ids if t not in now_present]
+    if rejected:
+        for tid in rejected:
+            print(f"  Tidal rejected track {tid} ({', '.join(id_keys[tid])})")
+            for key in id_keys[tid]:
+                search_cache.pop(key, None)
+        SEARCH_CACHE_FILE.write_text(json.dumps(search_cache))
+        print(f"Removed {len(rejected)} rejected tracks from the search cache.")
+
+    added = len(track_ids) - len(rejected)
+    print(f"\nDone! Added {added} tracks to '{playlist_name}' ({len(now_present)} total).")
     print(f"https://tidal.com/browse/playlist/{playlist.id}")
 
 if __name__ == "__main__":
