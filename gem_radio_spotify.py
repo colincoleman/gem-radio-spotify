@@ -257,9 +257,10 @@ class Spotify:
         r = self.session.post(f"{self.BASE}{path}", **kwargs)
         if r.status_code == 403 and "playlists" in path:
             print("\n403 Forbidden: Spotify refused to create the playlist.")
-            print("Delete ~/.gem_radio_spotify_token.json and re-run to get a fresh token.")
-            print("If it still fails, make sure your Developer App has 'Web API' enabled")
-            print("and the redirect URI set to http://127.0.0.1:8888/callback")
+            try:
+                print(f"Spotify says: {r.json()}")
+            except Exception:
+                print(f"Response body: {r.text}")
             sys.exit(1)
         r.raise_for_status()
         return r.json()
