@@ -59,7 +59,12 @@ python gem_radio_spotify.py --name "New Wave Classics"
 
 # Scrape fewer days
 python gem_radio_spotify.py --days 3
+
+# Add at most 250 new tracks this run (keeps you under Spotify's daily search quota)
+python gem_radio_spotify.py --limit 250
 ```
+
+Re-running with the same playlist name (the default name changes monthly) **adds** newly played tracks to the existing playlist — it never removes anything, and tracks already in the playlist are skipped. `--limit` counts only new tracks, so repeated `--limit 250` runs keep growing the playlist.
 
 ## How it works
 
@@ -67,11 +72,13 @@ python gem_radio_spotify.py --days 3
 2. **Deduplicates** tracks by `artist + title` (strips trailing rotation numbers like *Steppin Out 15* → *Steppin Out*)
 3. **Searches** the streaming service API for each unique track
 4. **Deduplicates by track ID** — the same song listed under slightly different names resolves to one entry
-5. **Creates a dated playlist** in your account and adds all matched tracks
+5. **Creates a dated playlist** in your account, or (Spotify) adds only new tracks if a playlist with that name already exists
 
 ### Caching
 
-Search results are cached in your home directory (`~/.gem_radio_tidal_search_cache.json` / `~/.gem_radio_spotify_search_cache.json`). Re-running the script — or running it again the following month — only makes API calls for tracks not seen before, so subsequent runs are much faster.
+Search results are cached in your home directory (`~/.gem_radio_tidal_search_cache.json` / `~/.gem_radio_spotify_search_cache.json`), including "not found" results. Re-running the script — or running it again the following month — only makes API calls for tracks not seen before, so subsequent runs are much faster.
+
+Cache entries are never expired. The Spotify script removes an entry only if Spotify rejects that specific track when adding it to a playlist, so it gets searched again next time. Auth or API outages never touch the cache.
 
 ### Auth files
 

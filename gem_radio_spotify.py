@@ -29,7 +29,7 @@ CONFIG_FILE = Path.home() / ".gem_radio_spotify.json"
 CACHE_FILE = Path.home() / ".gem_radio_spotify_token.json"
 SEARCH_CACHE_FILE = Path.home() / ".gem_radio_spotify_search_cache.json"
 REDIRECT_URI = "http://127.0.0.1:8888/callback"
-SCOPES = "playlist-modify-public playlist-modify-private"
+SCOPES = "playlist-modify-public playlist-modify-private playlist-read-private"
 ONLINERADIOBOX_BASE = "https://onlineradiobox.com/ie/gemnewwave/playlist"
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -266,16 +266,68 @@ class Spotify:
         items = data.get("tracks", {}).get("items", [])
         return items[0]["uri"] if items else None
 
+    def _paginate(self, path, **params):
+        data = self._get(path, limit=50, **params)
+        while True:
+            yield from data["items"]
+            if not data.get("next"):
+                return
+            r = self.session.get(data["next"])
+            r.raise_for_status()
+            data = r.json()
+
+    def find_playlist(self, name):
+        my_id = self._get("/me")["id"]
+        for p in self._paginate("/me/playlists"):
+            if p and p["name"] == name and p["owner"]["id"] == my_id:
+                return p["id"]
+        return None
+
+    def playlist_uris(self, playlist_id):
+        return {
+            entry["item"]["uri"]
+            for entry in self._paginate(f"/playlists/{playlist_id}/items")
+            if entry.get("item")
+        }
+
     def create_playlist(self, name, description=""):
         return self._post(
             "/me/playlists",
             json={"name": name, "public": True, "description": description},
         )["id"]
 
+    def _try_add(self, playlist_id, uris):
+        for _ in range(5):
+            r = self.session.post(f"{self.BASE}/playlists/{playlist_id}/items", json={"uris": uris})
+            if r.status_code == 429:
+                time.sleep(int(r.headers.get("Retry-After", 5)) + 1)
+                continue
+            return r
+        return r
+
     def add_tracks(self, playlist_id, uris):
+        """Add URIs in batches; returns the URIs Spotify rejected."""
+        rejected = []
         for i in range(0, len(uris), 100):
-            self._post(f"/playlists/{playlist_id}/items", json={"uris": uris[i:i+100]})
+            batch = uris[i:i+100]
+            r = self._try_add(playlist_id, batch)
+            if r.status_code == 400:
+                # A 400 means the request content is bad — find the offending
+                # URIs one at a time. Anything else (401/403/5xx) is an
+                # auth/API problem, so bail out without blaming the tracks.
+                for uri in batch:
+                    single = self._try_add(playlist_id, [uri])
+                    if single.status_code == 400:
+                        print(f"  Spotify rejected {uri}: {single.text}")
+                        rejected.append(uri)
+                    elif not single.ok:
+                        r = single
+                        break
+            if not r.ok and r.status_code != 400:
+                print(f"\nSpotify rejected adding tracks: {r.status_code} {r.text}")
+                sys.exit(1)
             time.sleep(0.2)
+        return rejected
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
@@ -288,15 +340,22 @@ def main():
     parser = argparse.ArgumentParser(description="Sync Gem Radio New Wave → Spotify playlist")
     parser.add_argument("--name", help="Playlist name (default: 'Gem Radio New Wave Jun 26')")
     parser.add_argument("--days", type=int, default=7, help="Days of history to scrape (default: 7)")
-    parser.add_argument("--limit", type=int, default=None, help="Max tracks to add to the playlist")
+    parser.add_argument("--limit", type=int, default=None, help="Max new tracks to add in this run")
     args = parser.parse_args()
 
     playlist_name = args.name or default_playlist_name()
-    print(f"Creating playlist: '{playlist_name}'")
 
     client_id = get_client_id()
     token = get_access_token(client_id)
     sp = Spotify(token)
+
+    playlist_id = sp.find_playlist(playlist_name)
+    if playlist_id:
+        existing = sp.playlist_uris(playlist_id)
+        print(f"Updating existing playlist '{playlist_name}' ({len(existing)} tracks already in it)")
+    else:
+        existing = set()
+        print(f"Will create new playlist: '{playlist_name}'")
 
     tracks = scrape_all_days(args.days)
     if not tracks:
@@ -307,7 +366,9 @@ def main():
 
     print("\nSearching Spotify for tracks…")
     uris = []
+    uri_keys = {}
     not_found = []
+    already_present = 0
     api_calls = 0
     for i, (artist, title) in enumerate(tracks, 1):
         if args.limit and len(uris) >= args.limit:
@@ -327,38 +388,42 @@ def main():
             api_calls += 1
             SEARCH_CACHE_FILE.write_text(json.dumps(search_cache))
             time.sleep(0.5)
-        if uri:
-            uris.append(uri)
-        else:
+        if not uri:
             not_found.append(f"{artist} - {title}")
+        elif uri in existing:
+            already_present += 1
+        else:
+            uri_keys.setdefault(uri, []).append(key)
+            if len(uri_keys[uri]) == 1:
+                uris.append(uri)
         if i % 10 == 0:
             cached = i - api_calls
-            print(f"  {i}/{len(tracks)}: {len(uris)} found, {api_calls} API calls, {cached} from cache…")
+            print(f"  {i}/{len(tracks)}: {len(uris)} new, {api_calls} API calls, {cached} from cache…")
 
-    seen_uris = set()
-    unique_uris = []
-    for uri in uris:
-        if uri not in seen_uris:
-            seen_uris.add(uri)
-            unique_uris.append(uri)
-    duplicates_removed = len(uris) - len(unique_uris)
-    uris = unique_uris
-
-    print(f"\nMatched {len(uris)}/{len(tracks)} tracks on Spotify ({duplicates_removed} duplicate URIs removed).")
+    print(f"\n{len(uris)} new tracks to add, {already_present} already in the playlist.")
     if not_found:
-        print(f"Not found ({len(not_found)}):")
+        print(f"Not found on Spotify ({len(not_found)}):")
         for t in not_found:
             print(f"  {t}")
 
     if not uris:
-        print("No tracks to add — exiting.")
-        sys.exit(1)
+        print("Nothing new to add.")
+        return
 
-    description = f"Gem Radio New Wave — scraped {datetime.now().strftime('%Y-%m-%d')}"
-    playlist_id = sp.create_playlist(playlist_name, description)
-    sp.add_tracks(playlist_id, uris)
+    if not playlist_id:
+        description = f"Gem Radio New Wave — created {datetime.now().strftime('%Y-%m-%d')}"
+        playlist_id = sp.create_playlist(playlist_name, description)
 
-    print(f"\nDone! Playlist '{playlist_name}' created with {len(uris)} tracks.")
+    rejected = sp.add_tracks(playlist_id, uris)
+    if rejected:
+        for uri in rejected:
+            for key in uri_keys[uri]:
+                search_cache.pop(key, None)
+        SEARCH_CACHE_FILE.write_text(json.dumps(search_cache))
+        print(f"Removed {len(rejected)} rejected tracks from the search cache.")
+
+    added = len(uris) - len(rejected)
+    print(f"\nDone! Added {added} tracks to '{playlist_name}' ({len(existing) + added} total).")
     print(f"https://open.spotify.com/playlist/{playlist_id}")
 
 if __name__ == "__main__":
