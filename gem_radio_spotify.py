@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 import base64
+import difflib
 import hashlib
 import secrets
 import subprocess
@@ -226,6 +227,28 @@ def scrape_all_days(num_days=7):
     print(f"Total unique tracks: {len(all_tracks)}")
     return all_tracks
 
+# ── Matching ─────────────────────────────────────────────────────────────────
+
+# Bump when matching improves: cached "not found" results from older versions
+# get one retry. Found tracks are never re-searched.
+MATCH_VERSION = 2
+NOT_FOUND = f"notfound:v{MATCH_VERSION}"
+
+def _tidy_title(title):
+    """Undo the station's metadata quirks: 'Into the Gap2', 'Clues v2', 'ViennaCalling', '(Remix)'."""
+    t = re.sub(r"\s*[\(\[].*?[\)\]]", "", title)
+    t = re.sub(r"\s+v\d+$", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"(?<=[a-z])\d+$", "", t)
+    t = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", t)
+    return t.strip() or title
+
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", re.sub(r"^the\s+", "", s.lower()))
+
+def _similar(a, b, threshold):
+    a, b = _norm(a), _norm(b)
+    return bool(a and b) and (a in b or b in a or difflib.SequenceMatcher(None, a, b).ratio() >= threshold)
+
 # ── Spotify API ───────────────────────────────────────────────────────────────
 
 class SpotifyRateLimitError(Exception):
@@ -260,11 +283,30 @@ class Spotify:
             sys.exit(1)
         return r.json()
 
+    def _search(self, query, limit=1):
+        data = self._get("/search", q=query, type="track", limit=limit, market="IE")
+        return data.get("tracks", {}).get("items", [])
+
     def search_track(self, artist, title):
-        query = f"artist:{artist} track:{title}"
-        data = self._get("/search", q=query, type="track", limit=1, market="IE")
-        items = data.get("tracks", {}).get("items", [])
-        return items[0]["uri"] if items else None
+        # Most tracks hit on the first, exact search; the rest only cost
+        # extra searches when that misses.
+        items = self._search(f"artist:{artist} track:{title}")
+        if items:
+            return items[0]["uri"]
+
+        tidy = _tidy_title(title)
+        if tidy != title:
+            items = self._search(f"artist:{artist} track:{tidy}")
+            if items:
+                return items[0]["uri"]
+
+        # Loose search, accepted only if both artist and title are close —
+        # handles typos ('Banarama') and spelling ('Hanging' vs "Hangin'").
+        for item in self._search(f"{artist} {tidy}", limit=5):
+            if (any(_similar(artist, a["name"], 0.8) for a in item["artists"])
+                    and _similar(tidy, item["name"], 0.6)):
+                return item["uri"]
+        return None
 
     def _paginate(self, path, **params):
         data = self._get(path, limit=50, **params)
@@ -369,21 +411,24 @@ def main():
     not_found = []
     already_present = 0
     api_calls = 0
+    quota_retry_hours = None
     for i, (artist, title) in enumerate(tracks, 1):
         if args.limit and len(uris) >= args.limit:
             break
         key = f"{artist.lower()} - {title.lower()}"
-        if key in search_cache:
-            uri = search_cache[key]
+        cached = search_cache.get(key)
+        if cached == NOT_FOUND:
+            uri = None
+        elif cached and not cached.startswith("notfound:"):
+            uri = cached
         else:
+            # Never searched, or a miss from an older matcher version
             try:
                 uri = sp.search_track(artist, title)
             except SpotifyRateLimitError as e:
-                hours = e.retry_after / 3600
-                print(f"\nSpotify daily quota hit. Progress saved ({api_calls} tracks searched, {len(uris)} found).")
-                print(f"Run the script again in {hours:.1f} hours to continue from where it left off.")
-                sys.exit(0)
-            search_cache[key] = uri
+                quota_retry_hours = e.retry_after / 3600
+                break
+            search_cache[key] = uri or NOT_FOUND
             api_calls += 1
             SEARCH_CACHE_FILE.write_text(json.dumps(search_cache))
             time.sleep(0.5)
@@ -396,8 +441,11 @@ def main():
             if len(uri_keys[uri]) == 1:
                 uris.append(uri)
         if i % 10 == 0:
-            cached = i - api_calls
-            print(f"  {i}/{len(tracks)}: {len(uris)} new, {api_calls} API calls, {cached} from cache…")
+            print(f"  {i}/{len(tracks)}: {len(uris)} new, {api_calls} API calls, {i - api_calls} from cache…")
+
+    if quota_retry_hours is not None:
+        print(f"\nSpotify daily search quota hit — adding what was found so far.")
+        print(f"Run again in {quota_retry_hours:.1f} hours to continue.")
 
     print(f"\n{len(uris)} new tracks to add, {already_present} already in the playlist.")
     if not_found:

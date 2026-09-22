@@ -75,7 +75,7 @@ Re-running **adds** newly played tracks to the existing playlist. It never remov
 
 1. **Scrapes** up to 7 days of play history from OnlineRadioBox, one page per day
 2. **Deduplicates** tracks by `artist + title` (strips trailing rotation numbers like *Steppin Out 15* → *Steppin Out*)
-3. **Searches** the streaming service API for each unique track
+3. **Searches** the streaming service API for each unique track. On Spotify, a miss is retried with a tidied title (*Into the Gap2* → *Into the Gap*, *ViennaCalling* → *Vienna Calling*, *(Remix)* dropped), then with a looser search that only accepts a result whose artist and title closely match (so *Banarama* still finds Bananarama)
 4. **Deduplicates by track ID** — the same song listed under slightly different names resolves to one entry
 5. **Creates a dated playlist** in your account, or adds only new tracks if a playlist with that name already exists
 
