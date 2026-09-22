@@ -4,7 +4,7 @@ Scrapes 7 days of [Gem Radio New Wave](https://tunein.com/radio/Gem-Radio-New-Wa
 
 Gem Radio New Wave has a great selection of 70s/80s New Wave and Alternative — but listening to it via TuneIn means putting up with heavily compressed 128kbps streaming audio that sounds terrible on anything decent. This script lifts the playlist out of TuneIn and recreates it in Spotify or Tidal where you can listen at a proper bitrate.
 
-Because the station runs a rotating catalog, scraping 7 days captures most of the unique tracks they play. Running the script monthly and keeping old playlists gives you a nice snapshot archive — *Gem Radio New Wave Jun 26*, *Gem Radio New Wave Jul 26*, and so on.
+Because the station runs a rotating catalog, scraping 7 days captures most of the unique tracks they play. Everything goes into a single playlist called *Gem Radio New Wave*: the first run creates it, and every later run adds whatever new tracks the station has played since. Nothing is ever removed, so the playlist grows as the station's rotation changes.
 
 ## Requirements
 
@@ -69,7 +69,7 @@ python gem_radio_spotify.py --days 3
 python gem_radio_spotify.py --limit 250
 ```
 
-Re-running with the same playlist name (the default name changes monthly) **adds** newly played tracks to the existing playlist — it never removes anything, and tracks already in the playlist are skipped. `--limit` counts only new tracks, so repeated `--limit 250` runs keep growing the playlist.
+Re-running **adds** newly played tracks to the existing playlist. It never removes anything, and tracks already in the playlist are skipped. `--limit` counts only new tracks, so repeated `--limit 250` runs keep growing the playlist. Use `--name` if you want a separate playlist, e.g. a snapshot for a particular month.
 
 ## How it works
 
@@ -81,7 +81,7 @@ Re-running with the same playlist name (the default name changes monthly) **adds
 
 ### Caching
 
-Search results are cached in your home directory (`~/.gem_radio_tidal_search_cache.json` / `~/.gem_radio_spotify_search_cache.json`), including "not found" results. Re-running the script — or running it again the following month — only makes API calls for tracks not seen before, so subsequent runs are much faster.
+Search results are cached in your home directory (`~/.gem_radio_tidal_search_cache.json` / `~/.gem_radio_spotify_search_cache.json`), including "not found" results. Re-running the script only makes API calls for tracks not seen before, so subsequent runs are much faster.
 
 Cache entries are never expired. An entry is removed only if the service rejects that specific track when adding it to a playlist, so it gets searched again next time. Auth or API outages never touch the cache.
 

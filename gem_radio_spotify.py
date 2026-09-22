@@ -331,19 +331,18 @@ class Spotify:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def default_playlist_name():
-    now = datetime.now()
-    return f"Gem Radio New Wave {now.strftime('%b %y')}"
+DEFAULT_PLAYLIST_NAME = "Gem Radio New Wave"
 
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Sync Gem Radio New Wave → Spotify playlist")
-    parser.add_argument("--name", help="Playlist name (default: 'Gem Radio New Wave Jun 26')")
+    parser.add_argument("--name", default=DEFAULT_PLAYLIST_NAME,
+                        help=f"Playlist to create or add to (default: '{DEFAULT_PLAYLIST_NAME}')")
     parser.add_argument("--days", type=int, default=7, help="Days of history to scrape (default: 7)")
     parser.add_argument("--limit", type=int, default=None, help="Max new tracks to add in this run")
     args = parser.parse_args()
 
-    playlist_name = args.name or default_playlist_name()
+    playlist_name = args.name
 
     client_id = get_client_id()
     token = get_access_token(client_id)

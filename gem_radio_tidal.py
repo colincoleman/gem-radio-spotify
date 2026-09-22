@@ -142,18 +142,18 @@ def playlist_track_ids(playlist):
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-def default_playlist_name():
-    return f"Gem Radio New Wave {datetime.now().strftime('%b %y')}"
+DEFAULT_PLAYLIST_NAME = "Gem Radio New Wave"
 
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Sync Gem Radio New Wave → Tidal playlist")
-    parser.add_argument("--name", help="Playlist name (default: 'Gem Radio New Wave Jun 26')")
+    parser.add_argument("--name", default=DEFAULT_PLAYLIST_NAME,
+                        help=f"Playlist to create or add to (default: '{DEFAULT_PLAYLIST_NAME}')")
     parser.add_argument("--days", type=int, default=7, help="Days of history to scrape (default: 7)")
     parser.add_argument("--limit", type=int, default=None, help="Max new tracks to add in this run")
     args = parser.parse_args()
 
-    playlist_name = args.name or default_playlist_name()
+    playlist_name = args.name
 
     session = get_session()
     print(f"Logged in as: {session.user.email}\n")
