@@ -315,6 +315,8 @@ def main():
     not_found = []
     api_calls = 0
     for i, (artist, title) in enumerate(tracks, 1):
+        if args.limit and len(uris) >= args.limit:
+            break
         key = f"{artist.lower()} - {title.lower()}"
         if key in search_cache:
             uri = search_cache[key]
@@ -346,9 +348,6 @@ def main():
             unique_uris.append(uri)
     duplicates_removed = len(uris) - len(unique_uris)
     uris = unique_uris
-
-    if args.limit:
-        uris = uris[:args.limit]
 
     print(f"\nMatched {len(uris)}/{len(tracks)} tracks on Spotify ({duplicates_removed} duplicate URIs removed).")
     if not_found:
